@@ -104,7 +104,8 @@ sandbox/rl-sandbox                                # run the launcher
   through `/dev/hidraw`, so turning that off is how a controller goes missing. With
   `network: false` the sandbox has no network at all.
 * Anything after `--` runs in the same sandbox instead of the launcher, which is how you look
-  around inside it: `sandbox/rl-sandbox -- /bin/sh`.
+  around inside it: `sandbox/rl-sandbox -- /bin/sh`. `--exec CMD ARGS…` does the same for a whole
+  command, which is how the menu entries below start the launcher and a game.
 
 Two things to know about actually starting it:
 
@@ -155,6 +156,68 @@ only ever touches processes it started itself.
 
 Both need a normal shell rather than another sandbox (bwrap cannot build a nested user namespace);
 `smoke-launcher.sh` also needs the session's display and GPU.
+
+### In the application menu
+
+```sh
+sandbox/desktop-entry.sh install   # writes ~/.local/share/applications/recomplauncher.desktop
+sandbox/desktop-entry.sh check     # validates it, asks Gio what the menu sees, launches it, looks
+sandbox/desktop-entry.sh uninstall # back to whatever the .deb installed
+```
+
+The entry keeps the desktop id the .deb uses (`recomplauncher.desktop`), so the menu shows one
+RecompLauncher and it is the sandboxed one: a per-user entry shadows the system one. `Exec` is the
+runner, so clicking the icon starts the launcher inside the boundary; `%u` still delivers a
+`recomplauncher://` link, and the icons are copied into the user's hicolor theme.
+
+`check` asks the questions in the order the desktop itself asks them:
+
+* `desktop-file-validate` — the validator the packaging tools use;
+* `Gio.AppInfo`, the list GNOME Shell builds its app grid from, including `should_show()`, the
+  filter that actually decides whether an entry is hidden;
+* the URI handler, with `xdg-mime query default x-scheme-handler/recomplauncher`;
+* the launch itself: `gio launch` on the entry, then `/proc/<pid>/environ` for the `RL_SANDBOX=1`
+  marker the runner sets — so "inside bwrap" means *this* sandbox, not any bwrap at all.
+
+A trap worth knowing: the AppImage's own `RecompLauncher.desktop` says `Exec=recomplauncher %u`,
+which only means anything inside the AppImage, where AppRun provides that command. Copied into the
+menu as-is, Gio refuses the entry outright — hence an entry that points at the runner instead.
+AppImage integrators rewrite `Exec` for the same reason.
+
+Not verified here: the app grid drawn on screen. GNOME disables `org.gnome.Shell.Eval`, so the
+membership claim rests on `Gio.AppInfo` and `should_show()` rather than on a screenshot.
+
+### Games in the application menu
+
+```sh
+sandbox/game-entry.sh list                 # installed games and whether each has a menu entry
+sandbox/game-entry.sh add longshot         # one entry, started through the sandbox
+sandbox/game-entry.sh add --all            # one per installed game
+sandbox/game-entry.sh remove --all
+```
+
+An entry made this way opens the game, not the launcher, and starts it the same way the launcher
+would: the program and its arguments come from the recomp's own `recomplauncher.json`, with
+`{install}` filled in. That matters more than it sounds — Longshot's `AppRun` is a builder that
+prints "get the Longshot Launcher" and exits unless it is given `--play`, so an entry built from
+the executable name alone looks right and does nothing. The name comes from the manifest's
+`game.label` when it has one ("The Legend of Zelda: Ocarina of Time" rather than "Longshot"),
+and `--name` overrides it.
+
+`Exec` goes through `rl-sandbox --exec`, so a game started from the menu is inside the same
+boundary as one started from the launcher, with the same config.
+
+Two things have to be true for this to work at all, and both fail silently in the launcher:
+
+* `~/.local/share/applications` (and `~/Desktop` for a desktop shortcut) must be in `read_write`,
+  or the launcher's own "Add to the applications menu" writes nothing and reports nothing. The
+  example config lists both;
+* the game's folder must be readable — it is usually already there as the library folder.
+
+The launcher's own button is untouched: an entry it makes runs the game directly, outside the
+sandbox. This script exists so the menu and the boundary can both be had. (Under the Flatpak the
+same button works the way you would expect, because the launcher is already inside Flatpak's
+sandbox — it is the un-sandboxed builds this is for.)
 
 ## What this is not
 

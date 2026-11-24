@@ -10,6 +10,7 @@ What is always visible, read-only, is what a dynamically linked desktop program 
 without: /usr, /etc, /lib*, /bin, /sbin, /opt and /sys. Everything else comes from the config.
 
     rl-sandbox                          run the launcher from the config
+    rl-sandbox --exec CMD [ARGS...]     run a game (or anything else) in the same sandbox
     rl-sandbox -- /bin/sh -c 'ls ~'     run something else in the same sandbox
     rl-sandbox --init-config            write a starter config and stop
     rl-sandbox --print                  show the bwrap command without running it
@@ -425,6 +426,12 @@ def main():
     parser.add_argument("--print", action="store_true", dest="print_only", help="show the bwrap command")
     parser.add_argument("--list", action="store_true", help="show which paths the sandbox exposes")
     parser.add_argument("--no-preflight", action="store_true", help="skip the bubblewrap capability check")
+    parser.add_argument(
+        "--exec",
+        dest="exec_command",
+        nargs=argparse.REMAINDER,
+        help="run this command in the sandbox instead of the launcher (for game shortcuts)",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER, help="command to run instead of the launcher")
     opts = parser.parse_args()
 
@@ -442,11 +449,15 @@ def main():
     uid = os.getuid()
     hint = repo_hint()
 
-    # `rl-sandbox -- <command>` runs that command in the sandbox instead of the launcher, which is
-    # how you look around inside it. Anything else on the command line goes to the launcher, which
+    # `rl-sandbox --exec CMD ARGS` runs that command in the sandbox: a game started straight from
+    # its own desktop shortcut, without the launcher in between. `rl-sandbox -- <command>` does the
+    # same thing for looking around. Anything else on the command line goes to the launcher, which
     # is how a desktop file passes it a recomplauncher:// link.
     rest = list(opts.command)
-    if "--" in rest:
+    if opts.exec_command:
+        cmd = [a for a in opts.exec_command if a != "--"]
+        extra_args = []
+    elif "--" in rest:
         cmd = rest[rest.index("--") + 1:]
         extra_args = []
     else:
